@@ -167,7 +167,7 @@ semparse(Words) :-
   -> length(Words, N),
      length(Seq, N),
      maplist(term, Words, Seq),
-     parse(Seq, Res # s),
+     parse(Seq, Res # s(_)),
      simp(Res, Sem),
      write(Sem), nl
    ; write('Error: Unknown word in sentence.'), nl.
