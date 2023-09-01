@@ -21,9 +21,18 @@
 % 以下, パーザの定義.
 
 % 右適用(Right Application, RAPP)
-rapp(X # A, Y => Z # A \ B, ((Y => Z) @ X) # B).
+synrapp(A, A \ B, B).
+semrapp(A, A => B, B).
+rapp(SemA # SynA, SemB # SynB, SemC # SynC) :-
+    synrapp(SynA, SynB, SynC),
+    semrapp(SemA, SemB, SemC).
+
 % 左適用(Left Application, LAPP)
-lapp(X => Y # A / B, Z # B, ((X => Y) @ Z) # A).
+synlapp(A / B, B, A).
+semlapp(A => B, A, B).
+lapp(SemA # SynA, SemB # SynB, SemC # SynC) :-
+    synlapp(SynA, SynB, SynC),
+    semlapp(SemA, SemB, SemC).
 
 % 単項規則 (Single Application)
 sapp(X # Y, X # Y).
@@ -36,155 +45,126 @@ append1([X|XS], [Y|YS], Z) :-
 % パーザ
 % 列を２つの非空リストに分割し, それぞれをパーズしてから結合する.
 % 分割した結果は保存されDPによって再利用される. (分割統治, メモ化)
-parse_seq([], _) :- !, fail.
-parse_seq([X], Y) :- !, sapp(X, Y).
-parse_seq(Seq, Res) :-
+parse([], _) :- !, fail.
+parse([X], Y) :- !, sapp(X, Y).
+parse(Seq, Res) :-
     append1(LS, RS, Seq),
-    parse_seq(LS, LT),
-    parse_seq(RS, RT),
+    parse(LS, LT),
+    parse(RS, RT),
     (lapp(LT, RT, Res);
      rapp(LT, RT, Res)).
 
-parse_sen(Sen, Sem # Cat) :-
-    maplist(term, Sen, Seq),
-    parse_seq(Seq, Thunk # Cat),
-    force(Thunk, Sem).
-
-sub(A, A, B, B) :- !.
-sub(A => B, A, _, A => B) :- !.
-sub(A => B, C, D, A => E) :- !,
-    sub(B, C, D, E).
-sub(A @ B, C, D, E @ F) :- !,
-    sub(A, C, D, E),
-    sub(B, C, D, F).
-sub(A, B, C, D) :-
-    A =.. [X1, X2], !,
-    sub(X1, B, C, Y1),
-    sub(X2, B, C, Y2),
-    D =.. [Y1, Y2].
-sub(A, B, C, D) :-
-    A =.. [X1, X2, X3], !,
-    sub(X1, B, C, Y1),
-    sub(X2, B, C, Y2),
-    sub(X3, B, C, Y3),
-    D =.. [Y1, Y2, Y3].
-sub(A, _, _, A).
-
-force(A, A) :- var(A), !.
-force(A @ B, A @ C) :-
-    var(A), !,
-    force(B, C).
-force((A => B) @ C, E) :- !,
-    sub(B, A, C, D),
-    force(D, E).
-force((A @ B) @ C, D) :- !,
-    force(A @ B, X),
-    force(C, Y),
-    force(X @ Y, D).
-force(A @ B, C) :- !,
-    A =.. [X|Y],
-    force(B, Z),
-    append(Y, [Z], W),
-    C =.. [X|W].
-force(A => B, A => C) :- !,
-    force(B, C).
-force(A, A).
-
-cps(X, k_ => k_ @ X) :- var(X), !.
-%cps(be, B => A => K => K @ (be @ B @ A)) :- !.
-%cps(run, a_ => k_ => k_ @ (run @ a_)) :- !.
-cps(X, k_ => k_ @ X) :- atom(X), !.
-cps(X => Y, k_ => k_ @ (X => Z)) :- cps(Y, Z), !.
-cps(X @ Y, k_ => A @ (m_ => B @ (n_ => m_ @ n_ @ k_))) :-
-    cps(X, A),
-    cps(Y, B).
+% 意味表現における高階の述語(call_)を簡約する.
+simp(X, X) :-
+    var(X), !.
+simp(X, X) :-
+    atom(X), !.
+simp([call_, X], Y) :- !,
+    simp(X, Y).
+simp([call_, Arg => Body, Arg | Args], Res) :- !,
+    simp([call_, Body| Args], Res).
+simp(XX, Y) :-
+    is_list(XX), !,
+    maplist(simp, XX, YY),
+    Y =.. YY.
+simp(X, Y) :-
+    X =.. XX,
+    simp(XX, Y).
 
 % 以下, 範疇文法の定義 (意味表現と対応する)
 % もし、メモリが足りないときは, 以下の範疇文法を減らす.
 % 基本範疇 n(単複, a/an), np(人称, 単複), s
 % 人称は1, 2, 3, 単複はsg, pl, 時制は, pas, pre (過去, 現在)
 %% verb
-term(like, a_ => b_ => love @ b_ @ a_ # (np(1, sg) \ s(pre)) / np(_, _)).
-term(like, a_ => b_ => love @ b_ @ a_ # (np(2, sg) \ s(pre)) / np(_, _)).
-term(likes, a_ => b_ => love @ b_ @ a_ # (np(3, sg) \ s(pre)) / np(_, _)).
-term(like, a_ => b_ => love @ b_ @ a_ # (np(_, pl) \ s(pre)) / np(_, _)).
-term(liked, a_ => b_ => love @ b_ @ a_ # (np(_, pl) \ s(pas)) / np(_, _)).
-term(run, a_ => run @ a_ # np(1, sg) \ s(pre)).
-term(run, a_ => run @ a_ # np(2, sg) \ s(pre)).
-term(runs, a_ => run @ a_ # np(3, sg) \ s(pre)).
-term(run, a_ => run @ a_ # np(_, pl) \ s(pre)).
-term(ran, a_ => past @ run @ a_ # np(_, _) \ s(pas)).
+% term(like, A => B => love(B, A) # (np(1, sg) \ s(pre)) / np(_, _)).
+% term(like, A => B => love(B, A) # (np(2, sg) \ s(pre)) / np(_, _)).
+% term(likes, A => B => love(B, A) # (np(3, sg) \ s(pre)) / np(_, _)).
+% term(like, A => B => love(B, A) # (np(_, pl) \ s(pre)) / np(_, _)).
+% term(liked, A => B => love(B, A) # (np(_, pl) \ s(pas)) / np(_, _)).
+% term(run, A => run(A) # np(1, sg) \ s(pre)).
+% term(run, A => run(A) # np(2, sg) \ s(pre)).
+% term(runs, A => run(A) # np(3, sg) \ s(pre)).
+% term(run, A => run(A) # np(_, pl) \ s(pre)).
+% term(ran, A => past(run(A)) # np(_, pl) \ s(pas)).
 %% be
-term(am, a_ => b_ => be @ b_ @ a_ # (np(1, sg) \ s(pre)) / np(_, sg)).
-term(are, a_ => b_ => be @ b_ @ a_ # (np(2, sg) \ s(pre)) / np(_, _)).
-term(is, a_ => b_ => be @ b_ @ a_ # (np(3, sg) \ s(pre)) / np(_, sg)).
-term(are, a_ => b_ => be @ b_ @ a_ # (np(_, pl) \ s(pre)) / np(_, pl)).
-term(am_not, a_ => b_ => not @ (be @ b_ @ a_) # (np(1, sg) \ s(pre)) / np(_, sg)).
-term(are_not, a_ => b_ => not @ (be @ b_ @ a_) # (np(2, sg) \ s(pre)) / np(_, _)).
-term(is_not, a_ => b_ => not @ (be @ b_ @ a_) # (np(3, sg) \ s(pre)) / np(_, sg)).
-term(are_not, a_ => b_ => not @ (be @ b_ @ a_) # (np(_, pl) \ s(pre)) / np(_, pl)).
-%% b_e (past)
-term(was, a_ => b_ => past @ (be @ b_ @ a_) # (np(1, sg) \ s(pas)) / np(_, sg)).
-term(were, a_ => b_ => past @ (be @ b_ @ a_) # (np(2, sg) \ s(pas)) / np(_, _)).
-term(was, a_ => b_ => past @ (be @ b_ @ a_) # (np(3, sg) \ s(pas)) / np(_, sg)).
-term(were, a_ => b_ => past @ (be @ b_ @ a_) # (np(_, pl) \ s(pas)) / np(_, pl)).
-term(was_not, a_ => b_ => past @ (not @ (be @ b_ @ a_)) # (np(1, sg) \ s(pas)) / np(_, sg)).
-term(were_not, a_ => b_ => past @ (not @ (be @ b_ @ a_)) # (np(2, sg) \ s(pas)) / np(_, _)).
-term(was_not, a_ => b_ => past @ (not @ (be @ b_ @ a_)) # (np(3, sg) \ s(pas)) / np(_, sg)).
-term(were_not, a_ => b_ => past @ (not @ (be @ b_ @ a_)) # (np(_, pl) \ s(pas)) / np(_, pl)).
+term(am, A => B => be(B, A) # (np(1, sg) \ s(pre)) / np(_, sg)).
+term(are, A => B => be(B, A) # (np(2, sg) \ s(pre)) / np(_, _)).
+term(is, A => B => be(B, A) # (np(3, sg) \ s(pre)) / np(_, sg)).
+term(are, A => B => be(B, A) # (np(_, pl) \ s(pre)) / np(_, pl)).
+term(am_not, A => B => not(be(B, A)) # (np(1, sg) \ s(pre)) / np(_, sg)).
+term(are_not, A => B => not(be(B, A)) # (np(2, sg) \ s(pre)) / np(_, _)).
+term(is_not, A => B => not(be(B, A)) # (np(3, sg) \ s(pre)) / np(_, sg)).
+term(are_not, A => B => not(be(B, A)) # (np(_, pl) \ s(pre)) / np(_, pl)).
+%% Be (past)
+term(was, A => B => past(be(B, A)) # (np(1, sg) \ s(pas)) / np(_, sg)).
+term(were, A => B => past(be(B, A)) # (np(2, sg) \ s(pas)) / np(_, _)).
+term(was, A => B => past(be(B, A)) # (np(3, sg) \ s(pas)) / np(_, sg)).
+term(were, A => B => past(be(B, A)) # (np(_, pl) \ s(pas)) / np(_, pl)).
+term(was_not, A => B => past(not(be(B, A))) # (np(1, sg) \ s(pas)) / np(_, sg)).
+term(were_not, A => B => past(not(be(B, A))) # (np(2, sg) \ s(pas)) / np(_, _)).
+term(was_not, A => B => past(not(be(B, A))) # (np(3, sg) \ s(pas)) / np(_, sg)).
+term(were_not, A => B => past(not(be(B, A))) # (np(_, pl) \ s(pas)) / np(_, pl)).
 %% Do not
-term(do_not, a_ => b_ => c_ => not @ (a_ @ c_ @ b_) # ((np(1, sg) \ s(pre)) / np(Y, Z)) / ((np(1, sg) \ s(pre)) / np(Y, Z))).
-term(do_not, a_ => b_ => c_ => not @ (a_ @ c_ @ b_) # ((np(2, sg) \ s(pre)) / np(Y, Z)) / ((np(2, sg) \ s(pre)) / np(Y, Z))).
-term(does_not, a_ => b_ => c_ => not @ (a_ @ c_ @ b_) # ((np(3, sg) \ s(pre)) / np(X, Y)) / ((np(3, pl) \ s(pre)) / np(X, Y))).
-term(do_not, a_ => b_ => c_ => not @ (a_ @ c_ @ b_) # ((np(X, pl) \ s(pre)) / np(Y, Z)) / ((np(X, pl) \ s(pre)) / np(Y, Z))).
-term(do_not, a_ => b_ => not @ (a_ @ b_) # (np(1, sg) \ s(pre)) / (np(1, sg) \ s(pre))).
-term(do_not, a_ => b_ => not @ (a_ @ b_) # (np(2, sg) \ s(pre)) / (np(2, sg) \ s(pre))).
-term(does_not, a_ => b_ => not @ (a_ @ b_) # (np(3, sg) \ s(pre)) / (np(3, pl) \ s(pre))).
-term(do_not, a_ => b_ => not @ (a_ @ b_) # (np(3, pl) \ s(pre)) / (np(3, pl) \ s(pre))).
+% term(do_not, A => B => C => not(call_(A, C, B)) # ((np(1, sg) \ s(pre)) / np(Y, Z)) / ((np(1, sg) \ s(pre)) / np(Y, Z))).
+% term(do_not, A => B => C => not(call_(A, C, B)) # ((np(2, sg) \ s(pre)) / np(Y, Z)) / ((np(2, sg) \ s(pre)) / np(Y, Z))).
+% term(does_not, A => B => C => not(call_(A, C, B)) # ((np(3, sg) \ s(pre)) / np(X, Y)) / ((np(3, pl) \ s(pre)) / np(X, Y))).
+% term(do_not, A => B => C => not(call_(A, C, B)) # ((np(X, pl) \ s(pre)) / np(Y, Z)) / ((np(X, pl) \ s(pre)) / np(Y, Z))).
+% term(do_not, A => B => not(call_(A, B)) # (np(1, sg) \ s(pre)) / (np(1, sg) \ s(pre))).
+% term(do_not, A => B => not(call_(A, B)) # (np(2, sg) \ s(pre)) / (np(2, sg) \ s(pre))).
+% term(does_not, A => B => not(call_(A, B)) # (np(3, sg) \ s(pre)) / (np(3, pl) \ s(pre))).
+% term(do_not, A => B => not(call_(A, B)) # (np(3, pl) \ s(pre)) / (np(3, pl) \ s(pre))).
 %% Did not
-term(did_not, a_ => b_ => c_ => past @ (not @ (a_ @ c_ @ b_)) # ((np(W, X) \ s(pas)) / np(Y, Z)) / ((np(W, X) \ s(pre)) / np(Y, Z))).
-term(did_not, a_ => b_ => past @ (not @ (a_ @ b_)) # (np(X, Y) \ s(pas)) / (np(X, Y) \ s(pre))).
+% term(did_not, A => B => C => past(not(call_(A, C, B))) # ((np(W, X) \ s(pas)) / np(Y, Z)) / ((np(W, X) \ s(pre)) / np(Y, Z))).
+% term(did_not, A => B => past(not(call_(A, B))) # (np(X, Y) \ s(pas)) / (np(X, Y) \ s(pre))).
 %% not
-term(not, a_ => b_ => not @ (a_ @ b_) # (n(X, Y) / n(X, Y)) / (n(X, Y) / n(X, Y))).
+% term(not, A => B => not(call_(A, B)) # (n(X, Y) / n(X, Y)) / (n(X, Y) / n(X, Y))).
 %% conj :: (X \ X) / X
-% term(and, a_ => b_ => b_ /\ a_ # (X \ X ) / X).
-% term(or, a_ => b_ => b_ \/ a_ # (X \ X ) / X).
-% term(and, a_ => b_ => b_ /\ a_ # (s(_) \ s(X) ) / s(X)).
-% term(or, a_ => b_ => b_ \/ a_ # (s(_) \ s(X) ) / s(X)).
+term(and, A => B => B /\ A # (X \ X ) / X).
+term(or, A => B => B \/ A # (X \ X ) / X).
+term(and, A => B => B /\ A # (s(_) \ s(X) ) / s(X)).
+term(or, A => B => B \/ A # (s(_) \ s(X) ) / s(X)).
 %% prp, subj :: s(T) / (np(3, pl) \ s(T))
-term(i, a_ => a_ @ i # s(T) / (np(1, sg) \ s(T))).
-term(we, a_ => a_ @ we # s(T) / (np(1, pl) \ s(T))).
-term(you, a_ => a_ @ you # s(T) / (np(2, _) \ s(T))).
-term(he, a_ => a_ @ he # s(T) / (np(3, sg) \ s(T))).
-term(she, a_ => a_ @ she # s(T) / (np(3, sg) \ s(T))).
-term(they, a_ => a_ @ they # s(T) / (np(3, pl) \ s(T))).
+term(i, A => call_(A, i) # s(T) / (np(1, sg) \ s(T))).
+term(we, A => call_(A, we) # s(T) / (np(1, pl) \ s(T))).
+term(you, A => call_(A, you) # s(T) / (np(2, _) \ s(T))).
+term(he, A => call_(A, he) # s(T) / (np(3, sg) \ s(T))).
+term(she, A => call_(A, she) # s(T) / (np(3, sg) \ s(T))).
+term(they, A => call_(A, they) # s(T) / (np(3, pl) \ s(T))).
 %% prp, gen :: np(3, _) / n(_, _)
-term(my, a_ => my @ a_ # np(3, X) / n(X, _)).
-term(our, a_ => our @ a_ # np(3, X) / n(X, _)).
-term(your, a_ => your @ a_ # np(3, X) / n(X, _)).
-term(his, a_ => his @ a_ # np(3, X) / n(X, _)).
-term(her, a_ => her @ a_ # np(3, X) / n(X, _)).
-term(their, a_ => their @ a_ # np(3, X) / n(X, _)).
+term(my, A => my(A) # np(3, X) / n(X, _)).
+term(our, A => our(A) # np(3, X) / n(X, _)).
+term(your, A => your(A) # np(3, X) / n(X, _)).
+term(his, A => his(A) # np(3, X) / n(X, _)).
+term(her, A => her(A) # np(3, X) / n(X, _)).
+term(their, A => their(A) # np(3, X) / n(X, _)).
 %% prp, acc :: (s(T) / np(3, _)) \ s(T)
-term(me, a_ => a_ @ me # (s(T) / np(_, _)) \ s(T)).
-term(us, a_ => a_ @ us # (s(T) / np(_, _)) \ s(T)).
-term(you, a_ => a_ @ you # (s(T) / np(_, _)) \ s(T)).
-term(him, a_ => a_ @ him # (s(T) / np(_, _)) \ s(T)).
-term(her, a_ => a_ @ her # (s(T) / np(_, _)) \ s(T)).
-term(them, a_ => a_ @ them # (s(T) / np(_, _)) \ s(T)).
+% term(me, A => call_(A, me) # (s(T) / np(_, _)) \ s(T)).
+% term(us, A => call_(A, us) # (s(T) / np(_, _)) \ s(T)).
+% term(you, A => call_(A, you) # (s(T) / np(_, _)) \ s(T)).
+% term(him, A => call_(A, him) # (s(T) / np(_, _)) \ s(T)).
+% term(her, A => call_(A, her) # (s(T) / np(_, _)) \ s(T)).
+% term(them, A => call_(A, them) # (s(T) / np(_, _)) \ s(T)).
+%% prp, pos :: (s(T) / np(3, _)) \ s(T)
+% term(mine, A => call_(A, mine) # (s(T) / np(_, _)) \ s(T)).
+% term(ours, A => call_(A, ours) # (s(T) / np(_, _)) \ s(T)).
+% term(yours, A => call_(A, yours) # (s(T) / np(_, _)) \ s(T)).
+% term(him, A => call_(A, him) # (s(T) / np(_, _)) \ s(T)).
+% term(hers, A => call_(A, hers) # (s(T) / np(_, _)) \ s(T)).
+% term(theirs, A => call_(A, theirs) # (s(T) / np(_, _)) \ s(T)).
 %% n({sg, pl}, {a, an})
 term(cat, cat # n(sg, a)).
 term(cats, cats # n(pl, a)).
 term(animal, animal # n(sg, an)).
 term(animals, animals # n(pl, an)).
 %% adj :: n({a, an}, {a, an}) / n({a, an}) / n({a, an})
-term(beautiful, a_ => beautiful @ a_ # n(X, a) / n(X, _)).
-term(white, a_ => white @ a_ # n(X, a) / n(X, _)).
+term(beautiful, beautiful # n(A, a) / n(A, _)).
+term(white, white # n(A, a) / n(A, _)).
 %% det :: np({sg, pl}) / n({sg, pl}, {a, an})
-term(a, a_ => a @ a_ # np(3, sg) / n(sg, a)).
-term(an, a_ => a @ a_ # np(3, sg) / n(sg, an)).
-term(the, a_ => the @ a_ # np(X) / n(X, a)).
-term(the, a_ => the @ a_ # np(X) / n(X, an)).
+term(a, A => a(A) # np(3, sg) / n(sg, a)).
+term(an, A => a(A) # np(3, sg) / n(sg, an)).
+term(the, A => the(A) # np(X) / n(X, a)).
+term(the, A => the(A) # np(X) / n(X, an)).
+
 
 % 意味解析器
 %semparse(Words) :-
@@ -205,20 +185,27 @@ comb_dup(N, XS, [X|YS]) :-
 
 writeln(A) :- write(A), nl.
 
+%for swi
+%g_assign(X, Y) :- nb_setval(X, Y).
+%g_read(X, Y) :- nb_getval(X, Y).
+
 generate(N) :-
     findall(Word, term(Word, _), Words),
-    sort(Words, UniqueWords),
-    length(UniqueWords, C),
+    length(Words, C),
     M is C ** N,
     g_assign(i, 0),
     findall(Sen # Sem, (
-       comb_dup(N, UniqueWords, Sen),
+       length(Seq, N),
+       length(Sen, N),
+       maplist(term, Sen, Seq),
        g_read(i, I),
        J is I + 1,
        g_assign(i, J),
        P is I * 100 / M,
-       format(user_error, '~c~f %%', [13, P]),
-       parse_sen(Sen, Sem # s(_))
+       format(user_error, '~f %%~n', [P]),
+       parse(Seq, Res # s(_)),
+       simp(Res, Sem),
+       write(Sen), write(' # '), write(Sem), nl
      ), Res),
     maplist(writeln, Res).
 
