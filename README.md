@@ -8,14 +8,8 @@ CGによる意味解析器および文生成器
 ## Usage
 
 ```
-$ swipl -l manx.pl # 読み込み
-
-?- semparse([i, like,  cats]). -- 意味解析の実行
-like(i, cats)
-
-?- generate(3).
-[i, like, cats] # like(i, cats) -- n単語の文の列挙
-...
+$ make
+$ ./manx <number of words>
 ```
 
 ## Customization
