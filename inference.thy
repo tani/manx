@@ -47,11 +47,11 @@ lemma "∀x. x⇗is_a⇖dog ⟶ x⇗like⇖dog ⟹ dog⇗like⇖pochi"
   using is_a.intros like.intros lapp_def rapp_def by metis
 
 text "If every dog likes pochi then dog likes pochi"
-lemma "⟦∀x. x⇗is_a⇖dog ⟶ x⇗like⇖pochi⟧ ⟹ dog⇗like⇖pochi"
+lemma "∀x. x⇗is_a⇖dog ⟶ x⇗like⇖pochi ⟹ dog⇗like⇖pochi"
   using is_a.intros like.intros lapp_def rapp_def by metis
 
 text "If a dog likes any fruit then pochi likes an apple"
-lemma "⟦∀x. x⇗is_a⇖fruit ⟶ dog⇗like⇖x⟧ ⟹ pochi⇗like⇖apple"
+lemma "∀x. x⇗is_a⇖fruit ⟶ dog⇗like⇖x ⟹ pochi⇗like⇖apple"
   using is_a.intros like.intros lapp_def rapp_def by metis
 
 text "If every animal runs then a dog runs"
