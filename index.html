@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>FOL Prover</title>
+    <style>
+      form {
+        display: block;
+        margin: auto;
+        width: 80%;
+        padding: 1em;
+      }
+      form > div {
+        margin-bottom: 1em;
+        padding: 1em;
+        border: 1px solid black;
+      }
+      form input[type="text"] {
+        display: block;
+        width: 100%;
+        margin: 0.5em 0;
+      }
+      form > input[type="submit"] {
+        display: block;
+        margin: auto auto auto calc(100% - 5em);
+      }
+    </style>
+  </head>
+  <body>
+    <h1>FOL Prover</h1>
+    <form id="entail" action="entail" method="post">
+      <div>
+        <h3>Settings</h3>
+        <label for="const">Constants</label>
+        <input type="text" name="const" value="john, apple, dog">
+        <label for="funct">Functions</label>
+        <input type="text" name="funct" value="white, beautiful">
+        <label for="arity">Arity</label>
+        <input type="number" name="arity" value="1">
+        <label for="depth">Depth</label>
+        <input type="number" name="depth" value="1">
+      </div>
+      <div>
+        <h3>Entailment</h3>
+        <p>Supported operators: <code>~, /\, \/, =&gt;, forall, exists</code></p>
+        <label for="assum">Assumption</label>
+        <input type="text" name="assum" value="forall x: like(x, white(dog))">
+        <hr>
+        <label for="concl">Conclusion</label>
+        <input type="text" name="concl" value="exists x: like(john, white(x))">
+        <br>
+      </div>
+      <input type="submit" value="Check">
+    </form>
+    <script>
+      document.getElementById("entail").
+        addEventListener("submit", (event) => {
+          event.preventDefault();
+          (async () => {
+            const form = event.target;
+            const data = new FormData(form);
+            try {
+              const response = await fetch(form.action, {
+                method: form.method,
+                body: data
+              })
+              if (response.ok) {
+                alert(await response.text());
+              } else {
+                throw new Error("Something went wrong");
+              }
+            } catch (error) {
+              console.error(error);
+            }
+          })();
+          return false;
+        });
+    </script>
+  </body>
+</html>
